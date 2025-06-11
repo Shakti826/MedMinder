@@ -13,7 +13,6 @@
       }
     }
   </script>
-<link rel="stylesheet" href="/index.css">
 </head>
 <body>
   <section id="landing-page">
@@ -56,10 +55,12 @@
       <header id="app-header">
         <h1 id="app-title">MedMinder</h1>
         <div class="controls">
+          <span id="current-user-display" class="user-display"></span>
           <select id="language-selector" aria-label="Select language">
             <option value="en">English</option>
             <option value="es">Español</option>
           </select>
+          <button id="logout-button" class="button-secondary button-small">Logout</button>
         </div>
       </header>
       <nav id="app-nav">
@@ -77,6 +78,5 @@
     </div>
   </div>
   <script type="module" src="index.tsx"></script>
-<script type="module" src="/index.tsx"></script>
 </body>
 </html>

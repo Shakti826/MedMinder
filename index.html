@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MedMinder</title>
+  <link rel="stylesheet" href="index.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Poppins:wght@300;400;600;700&display=swap">
+  <script type="importmap">
+    {
+      "imports": {
+        "@google/genai": "https://esm.sh/@google/genai@^0.7.0"
+      }
+    }
+  </script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+  <section id="landing-page">
+    <div class="hero-section">
+      <div class="hero-content">
+        <h1 id="landing-app-title">MedMinder</h1>
+        <p id="landing-tagline">Your personal health companion, simplified.</p>
+        <button id="enter-app-button" class="cta-button">Get Started</button>
+      </div>
+      <div class="hero-bg-shapes">
+        <div class="shape shape-1"></div>
+        <div class="shape shape-2"></div>
+        <div class="shape shape-3"></div>
+      </div>
+    </div>
+    <div class="features-overview">
+      <h2 id="features-title">Everything you need, in one place.</h2>
+      <div class="feature-cards-container">
+        <div class="feature-card" data-aos="fade-up">
+          <div class="feature-icon">🕒</div>
+          <h3 id="feature-reminders-title">Medicine Reminders</h3>
+          <p id="feature-reminders-desc">Never miss a dose with smart, customizable reminders for all your medications.</p>
+        </div>
+        <div class="feature-card" data-aos="fade-up" data-aos-delay="100">
+          <div class="feature-icon">📅</div>
+          <h3 id="feature-appointments-title">Appointment Scheduling</h3>
+          <p id="feature-appointments-desc">Keep track of all doctor visits and lab tests. Sync with your calendar effortlessly.</p>
+        </div>
+        <div class="feature-card" data-aos="fade-up" data-aos-delay="200">
+          <div class="feature-icon">📂</div>
+          <h3 id="feature-records-title">Digital Health Records</h3>
+          <p id="feature-records-desc">Securely store and access prescriptions, lab reports, and scans anytime, anywhere.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div id="main-app-wrapper" style="display: none;"> <!-- Main app initially hidden -->
+    <div id="app-container">
+      <header id="app-header">
+        <h1 id="app-title">MedMinder</h1>
+        <div class="controls">
+          <select id="language-selector" aria-label="Select language">
+            <option value="en">English</option>
+            <option value="es">Español</option>
+          </select>
+        </div>
+      </header>
+      <nav id="app-nav">
+        <ul>
+          <li><button data-view="dashboard" class="nav-button active" aria-label="Dashboard"></button></li>
+          <li><button data-view="reminders" class="nav-button" aria-label="Medicine Reminders"></button></li>
+          <li><button data-view="appointments" class="nav-button" aria-label="Appointments"></button></li>
+          <li><button data-view="records" class="nav-button" aria-label="Health Records"></button></li>
+          <li><button data-view="emergency" class="nav-button" aria-label="Emergency Info"></button></li>
+          <li><button data-view="family" class="nav-button" aria-label="Family Members"></button></li>
+        </ul>
+      </nav>
+      <main id="app-content">
+        </main>
+    </div>
+  </div>
+  <script type="module" src="index.tsx"></script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

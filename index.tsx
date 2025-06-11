@@ -5,6 +5,12 @@
 
 // import { GoogleGenAI } from '@google/genai'; // Kept for future, not used in this phase
 
+interface User {
+  id: string;
+  username: string;
+  // Password is not stored in appState, only used during login/registration
+}
+
 interface Medication {
   id: string;
   name: string;
@@ -60,6 +66,7 @@ interface HealthRecord {
 }
 
 interface AppState {
+  currentUser: User | null; // Added for logged-in user context
   medications: Medication[];
   familyMembers: FamilyMember[];
   appointments: Appointment[];
@@ -77,6 +84,10 @@ interface AppState {
   editingMedicationId: string | null;
   editingFamilyMemberId: string | null;
   editingAppointmentId: string | null;
+
+  // Notification states
+  notificationPermission: 'default' | 'granted' | 'denied';
+  lastNotificationTimestamps: { [key: string]: number }; // Stores timestamp of last notification for an item
 }
 
 const translations = {
@@ -97,6 +108,8 @@ const translations = {
     navRecords: "Records",
     navEmergency: "Emergency",
     navFamily: "Family",
+    logout: "Logout",
+    welcomeUser: "Welcome",
     addReminder: "Add Reminder",
     editReminder: "Edit Reminder",
     updateReminder: "Update Reminder",
@@ -181,17 +194,28 @@ const translations = {
     recordTypeVaccination: "Vaccination Record",
     recordTypeOther: "Other",
     recordDate: "Date of Record",
-    recordFile: "Upload File (Image/PDF)",
+    recordFile: "Upload File (Image/PDF, max 2MB)",
     recordNotes: "Notes (optional)",
     noRecords: "No health records uploaded yet.",
     uploadedRecords: "Uploaded Health Records",
     viewDownload: "View/Download",
     fileName: "File",
+    errorFileSizeTooLarge: "File is too large. Max 2MB allowed.",
     // Emergency View
     emergencyInformation: "Emergency Information",
     noEmergencyInfo: "No emergency information available for this member.",
     viewFullDetailsInFamily: "View/Edit full details in Family section.",
     noFamilyForEmergency: "No family members to display emergency information for.",
+    // Notifications
+    notificationPermissionRequest: "MedMinder needs permission to show notifications for reminders.",
+    enableNotifications: "Enable Notifications",
+    notificationsEnabled: "Notifications are enabled.",
+    notificationsDenied: "Notification permission was denied. Please enable it in your browser settings if you want reminders.",
+    notificationsDefault: "Notification permission pending. Click 'Enable Notifications' to receive reminders.",
+    medicationReminderTitle: "MedMinder: Medicine Reminder",
+    medicationReminderBody: "It's time to take your %s.", // %s will be medication name
+    appointmentReminderTitle: "MedMinder: Appointment Reminder",
+    appointmentReminderBody: "Upcoming appointment: %s at %s.", // %s will be appointment title and time
     // General
     errorAPI: "An error occurred. Please try again.",
     loadingMedications: "Loading medications...",
@@ -215,6 +239,8 @@ const translations = {
     navRecords: "Registros Médicos",
     navEmergency: "Emergencia",
     navFamily: "Familia",
+    logout: "Cerrar Sesión",
+    welcomeUser: "Bienvenido",
     addReminder: "Añadir Recordatorio",
     editReminder: "Editar Recordatorio",
     updateReminder: "Actualizar Recordatorio",
@@ -299,17 +325,28 @@ const translations = {
     recordTypeVaccination: "Registro de Vacunación",
     recordTypeOther: "Otro",
     recordDate: "Fecha del Registro",
-    recordFile: "Subir Archivo (Imagen/PDF)",
+    recordFile: "Subir Archivo (Imagen/PDF, máx 2MB)",
     recordNotes: "Notas (opcional)",
     noRecords: "No hay registros médicos subidos aún.",
     uploadedRecords: "Registros Médicos Subidos",
     viewDownload: "Ver/Descargar",
     fileName: "Archivo",
+    errorFileSizeTooLarge: "El archivo es demasiado grande. Máximo 2MB permitido.",
     // Emergency View
     emergencyInformation: "Información de Emergencia",
     noEmergencyInfo: "No hay información de emergencia disponible para este miembro.",
     viewFullDetailsInFamily: "Ver/Editar detalles completos en la sección Familia.",
     noFamilyForEmergency: "No hay miembros familiares para mostrar información de emergencia.",
+    // Notifications
+    notificationPermissionRequest: "MedMinder necesita permiso para mostrar notificaciones de recordatorios.",
+    enableNotifications: "Habilitar Notificaciones",
+    notificationsEnabled: "Las notificaciones están habilitadas.",
+    notificationsDenied: "Se denegó el permiso de notificación. Habilítelo en la configuración de su navegador si desea recordatorios.",
+    notificationsDefault: "Permiso de notificación pendiente. Haga clic en 'Habilitar Notificaciones' para recibir recordatorios.",
+    medicationReminderTitle: "MedMinder: Recordatorio de Medicamento",
+    medicationReminderBody: "Es hora de tomar tu %s.", // %s will be medication name
+    appointmentReminderTitle: "MedMinder: Recordatorio de Cita",
+    appointmentReminderBody: "Próxima cita: %s a las %s.", // %s will be appointment title and time
     // General
     errorAPI: "Ocurrió un error. Por favor, inténtalo de nuevo.",
     loadingMedications: "Cargando medicamentos...",
@@ -318,13 +355,22 @@ const translations = {
   }
 };
 
-let appState: AppState = loadState();
+const APP_CURRENT_USER_STORAGE_KEY = 'medMinderCurrentUser';
+const USER_APP_STATE_PREFIX = 'medMinderAppState_';
+let appState: AppState = loadInitialState();
 
 const API_DELAY = 700; // milliseconds
+const NOTIFICATION_CHECK_INTERVAL = 60000; // 1 minute
+const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024; // 2MB
 
 // --- Utility Functions ---
-function generateId(): string {
+function appGenerateId(): string {
   return Date.now().toString() + Math.random().toString(36).substring(2, 9);
+}
+
+function getCurrentUser(): User | null {
+    const userJson = localStorage.getItem(APP_CURRENT_USER_STORAGE_KEY);
+    return userJson ? JSON.parse(userJson) : null;
 }
 
 function setLoadingState(button: HTMLButtonElement | null, isLoading: boolean, defaultTextKey: keyof typeof translations.en, loadingTextKey: keyof typeof translations.en) {
@@ -346,7 +392,7 @@ function setLoadingState(button: HTMLButtonElement | null, isLoading: boolean, d
 async function apiFetchMedications(): Promise<Medication[]> {
   console.log("API: Fetching medications...");
   appState.isLoadingMedications = true;
-  renderMedicationList();
+  renderMedicationList(); // Render with loading state
 
   return new Promise((resolve) => {
     setTimeout(() => {
@@ -363,7 +409,7 @@ async function apiAddMedication(medData: Omit<Medication, 'id' | 'taken'>): Prom
     setTimeout(() => {
       const newMed: Medication = {
         ...medData,
-        id: generateId(),
+        id: appGenerateId(),
         taken: false,
       };
       appState.medications.push(newMed);
@@ -413,8 +459,15 @@ async function apiDeleteMedication(medId: string): Promise<void> {
 // --- Simulated API Service for Family Members ---
 async function apiFetchFamilyMembers(): Promise<FamilyMember[]> {
   console.log("API: Fetching family members...");
-  appState.isLoadingFamilyMembers = true;
-  renderFamilyList();
+  if (document.getElementById('family-list')) { // Only set loading if list is visible
+      appState.isLoadingFamilyMembers = true;
+      renderFamilyList();
+  } else if (document.getElementById('emergency-details-list')) { // For emergency view
+      appState.isLoadingFamilyMembers = true; // Still use this flag
+      const listContainer = document.getElementById('emergency-details-list') as HTMLElement;
+      if (listContainer) listContainer.innerHTML = `<p>${t('loadingFamilyMembers')}</p>`;
+  }
+
 
   return new Promise((resolve) => {
     setTimeout(() => {
@@ -431,8 +484,8 @@ async function apiAddFamilyMember(memberData: Omit<FamilyMember, 'id'>): Promise
     setTimeout(() => {
       const newMember: FamilyMember = {
         ...memberData,
-        id: generateId(),
-        emergencyContacts: memberData.emergencyContacts.map(ec => ({...ec, id: generateId()})), // Ensure contacts have IDs
+        id: appGenerateId(),
+        emergencyContacts: memberData.emergencyContacts.map(ec => ({...ec, id: ec.id || appGenerateId()})),
       };
       appState.familyMembers.push(newMember);
       saveState();
@@ -448,9 +501,8 @@ async function apiUpdateFamilyMember(memberId: string, updates: Partial<Omit<Fam
     setTimeout(() => {
       const memberIndex = appState.familyMembers.findIndex(m => m.id === memberId);
       if (memberIndex > -1) {
-        // Ensure emergency contacts in updates also have IDs or get new ones
         if (updates.emergencyContacts) {
-            updates.emergencyContacts = updates.emergencyContacts.map(ec => ({...ec, id: ec.id || generateId()}));
+            updates.emergencyContacts = updates.emergencyContacts.map(ec => ({...ec, id: ec.id || appGenerateId()}));
         }
         appState.familyMembers[memberIndex] = { ...appState.familyMembers[memberIndex], ...updates };
         saveState();
@@ -471,7 +523,7 @@ async function apiDeleteFamilyMember(memberId: string): Promise<void> {
       const initialLength = appState.familyMembers.length;
       appState.familyMembers = appState.familyMembers.filter(m => m.id !== memberId);
       if (appState.familyMembers.length < initialLength) {
-        // Cascade delete/update assignments
+        // Reassign items from deleted member to 'self'
         appState.medications.forEach(med => { if (med.assignedTo === memberId) med.assignedTo = 'self'; });
         appState.appointments.forEach(appt => { if (appt.assignedTo === memberId) appt.assignedTo = 'self'; });
         appState.healthRecords.forEach(record => { if (record.assignedTo === memberId) record.assignedTo = 'self'; });
@@ -490,7 +542,7 @@ async function apiDeleteFamilyMember(memberId: string): Promise<void> {
 async function apiFetchAppointments(): Promise<Appointment[]> {
   console.log("API: Fetching appointments...");
   appState.isLoadingAppointments = true;
-  renderAppointmentList(); // Show loading state
+  renderAppointmentList(); // Render with loading state
 
   return new Promise((resolve) => {
     setTimeout(() => {
@@ -507,7 +559,7 @@ async function apiAddAppointment(apptData: Omit<Appointment, 'id' | 'completed'>
     setTimeout(() => {
       const newAppt: Appointment = {
         ...apptData,
-        id: generateId(),
+        id: appGenerateId(),
         completed: false,
       };
       appState.appointments.push(newAppt);
@@ -555,9 +607,27 @@ async function apiDeleteAppointment(apptId: string): Promise<void> {
 }
 
 
-function loadState(): AppState {
-  const savedState = localStorage.getItem('medMinderState');
-  const defaultState: AppState = {
+function loadInitialState(): AppState {
+    const currentUser = getCurrentUser();
+    if (!currentUser) {
+        console.warn("No current user found. This should be handled by redirection in DOMContentLoaded.");
+        // This state is temporary, redirection should occur before app uses it.
+        return {
+            currentUser: null,
+            medications: [], familyMembers: [], appointments: [], healthRecords: [],
+            currentView: 'dashboard', language: 'en', isLandingActive: true,
+            isLoadingMedications: false, isLoadingFamilyMembers: false, isLoadingAppointments: false,
+            editingMedicationId: null, editingFamilyMemberId: null, editingAppointmentId: null,
+            notificationPermission: 'default', lastNotificationTimestamps: {}
+        };
+    }
+    return loadStateForUser(currentUser);
+}
+
+
+function loadStateForUser(user: User): AppState {
+  const savedStateJson = localStorage.getItem(USER_APP_STATE_PREFIX + user.id);
+  const defaultUserState: Omit<AppState, 'currentUser'> = {
     medications: [],
     familyMembers: [],
     appointments: [],
@@ -571,13 +641,21 @@ function loadState(): AppState {
     editingMedicationId: null,
     editingFamilyMemberId: null,
     editingAppointmentId: null,
+    notificationPermission: Notification?.permission || 'default',
+    lastNotificationTimestamps: {},
   };
 
-  if (savedState) {
-    const parsedState = JSON.parse(savedState);
+  if (savedStateJson) {
+    const parsedState = JSON.parse(savedStateJson);
+    const isLandingActive = parsedState.isLandingActive === false ? false : defaultUserState.isLandingActive;
+
     return {
-      ...defaultState,
+      ...defaultUserState,
       ...parsedState,
+      currentUser: user,
+      isLandingActive: isLandingActive,
+      notificationPermission: Notification?.permission || parsedState.notificationPermission || 'default',
+      lastNotificationTimestamps: parsedState.lastNotificationTimestamps || {},
       medications: (parsedState.medications || []).map((med: any) => ({ ...med, duration: med.duration || '' })),
       familyMembers: (parsedState.familyMembers || []).map((fm: any) => ({
         ...fm,
@@ -586,34 +664,51 @@ function loadState(): AppState {
         medicalConditions: fm.medicalConditions || '',
         bloodType: fm.bloodType || '',
         allergies: fm.allergies || '',
-        emergencyContacts: (fm.emergencyContacts || []).map((ec: any) => ({...ec, id: ec.id || generateId()})),
+        emergencyContacts: (fm.emergencyContacts || []).map((ec: any) => ({...ec, id: ec.id || appGenerateId()})),
         otherMedicalInfo: fm.otherMedicalInfo || '',
       })),
-      appointments: parsedState.appointments || [],
-      healthRecords: parsedState.healthRecords || [],
-      isLandingActive: parsedState.isLandingActive === undefined ? true : parsedState.isLandingActive,
     };
   }
-  return defaultState;
+  return { ...defaultUserState, currentUser: user, isLandingActive: true };
 }
 
 function saveState() {
+  if (!appState.currentUser) {
+    console.error("Attempted to save state without a current user.");
+    return;
+  }
   const stateToSave = { ...appState };
-  // Don't persist loading or editing states
-  delete (stateToSave as any).isLoadingMedications;
-  delete (stateToSave as any).isLoadingFamilyMembers;
-  delete (stateToSave as any).isLoadingAppointments;
-  delete (stateToSave as any).editingMedicationId;
-  delete (stateToSave as any).editingFamilyMemberId;
-  delete (stateToSave as any).editingAppointmentId;
-  localStorage.setItem('medMinderState', JSON.stringify(stateToSave));
+  const {
+      currentUser,
+      isLoadingMedications, isLoadingFamilyMembers, isLoadingAppointments,
+      editingMedicationId, editingFamilyMemberId, editingAppointmentId,
+      // notificationPermission should be persisted if changed by our app,
+      // but browser's Notification.permission is the source of truth for current status.
+      ...persistedState
+  } = stateToSave;
+
+  localStorage.setItem(USER_APP_STATE_PREFIX + appState.currentUser.id, JSON.stringify(persistedState));
 }
 
+
 function t(key: keyof typeof translations.en, fallback?: string): string {
-  return translations[appState.language][key] || fallback || translations.en[key] || key;
+  const lang = appState?.language || 'en';
+  const mainTranslations = translations[lang] as Record<string, string>;
+  const fallbackTranslations = translations.en as Record<string, string>;
+  return mainTranslations[key] || fallback || fallbackTranslations[key] || key;
+}
+
+function handleLogout() {
+    localStorage.removeItem(APP_CURRENT_USER_STORAGE_KEY);
+    window.location.href = 'login.html';
 }
 
 function renderApp() {
+  if (!appState.currentUser) {
+    window.location.href = 'login.html';
+    return;
+  }
+
   const landingPage = document.getElementById('landing-page');
   const mainAppWrapper = document.getElementById('main-app-wrapper');
 
@@ -622,6 +717,7 @@ function renderApp() {
     return;
   }
 
+  // Update landing page translations
   (document.getElementById('landing-app-title') as HTMLElement).textContent = t('appName');
   (document.getElementById('landing-tagline') as HTMLElement).textContent = t('landingTagline');
   (document.getElementById('enter-app-button') as HTMLElement).textContent = t('getStarted');
@@ -651,6 +747,14 @@ function renderApp() {
     const appTitle = document.getElementById('app-title');
     if (appTitle) appTitle.textContent = t('appName');
 
+    const currentUserDisplay = document.getElementById('current-user-display');
+    if (currentUserDisplay && appState.currentUser) {
+        currentUserDisplay.textContent = `${t('welcomeUser')}, ${appState.currentUser.username}!`;
+    }
+    const logoutButton = document.getElementById('logout-button');
+    if (logoutButton) logoutButton.textContent = t('logout');
+
+
     const navButtons = document.querySelectorAll<HTMLButtonElement>('#app-nav button');
     navButtons.forEach(button => {
       const view = button.dataset.view;
@@ -666,29 +770,31 @@ function renderApp() {
     const content = document.getElementById('app-content');
     if (!content) return;
 
-    content.innerHTML = '';
+    content.innerHTML = ''; // Clear previous content
 
-    switch (appState.currentView) {
-      case 'dashboard':
-        renderDashboard(content);
-        break;
-      case 'reminders':
-        renderMedicineReminders(content);
-        break;
-      case 'appointments':
-        renderAppointmentsView(content);
-        break;
-      case 'records':
-        renderHealthRecordsView(content);
-        break;
-      case 'family':
-        renderFamilyMembers(content);
-        break;
-      case 'emergency':
-        renderEmergencyView(content);
-        break;
-      default:
-        content.innerHTML = `<p>${t('viewNotImplemented')}</p>`;
+    // Add notification permission status to dashboard or a general settings area
+    if (appState.currentView === 'dashboard') {
+        renderDashboard(content); // RenderDashboard will now include notification status
+    } else {
+      switch (appState.currentView) {
+        case 'reminders':
+          renderMedicineReminders(content);
+          break;
+        case 'appointments':
+          renderAppointmentsView(content);
+          break;
+        case 'records':
+          renderHealthRecordsView(content);
+          break;
+        case 'family':
+          renderFamilyMembers(content);
+          break;
+        case 'emergency':
+          renderEmergencyView(content);
+          break;
+        default:
+          content.innerHTML = `<p>${t('viewNotImplemented')}</p>`;
+      }
     }
   }
 }
@@ -714,6 +820,7 @@ function showMainApp() {
   appState.isLandingActive = false;
   saveState();
   renderApp();
+  requestNotificationPermission(); // Request permission when user enters main app
 }
 
 function renderDashboard(container: HTMLElement) {
@@ -722,11 +829,27 @@ function renderDashboard(container: HTMLElement) {
     const activeReminders = appState.medications.filter(med => !med.taken);
     const appointmentsToday = appState.appointments.filter(appt => appt.date === today && !appt.completed);
 
+    let greetingName = appState.currentUser ? appState.currentUser.username : "";
+
+    let notificationStatusHtml = '';
+    if (appState.notificationPermission === 'granted') {
+        notificationStatusHtml = `<div class="notification-status success">${t('notificationsEnabled')}</div>`;
+    } else if (appState.notificationPermission === 'denied') {
+        notificationStatusHtml = `<div class="notification-status error">${t('notificationsDenied')}</div>`;
+    } else {
+        notificationStatusHtml = `
+            <div class="notification-status warning">
+                ${t('notificationsDefault')}
+                <button id="enable-notifications-btn" class="button-small button-primary">${t('enableNotifications')}</button>
+            </div>`;
+    }
+
     container.innerHTML = `
         <div class="dashboard-greeting">
-            <h2>${t('dashboardGreeting')}</h2>
+            <h2>${t('dashboardGreeting')} ${greetingName}!</h2>
             <p>${t('dashboardMessage')}</p>
         </div>
+        ${notificationStatusHtml}
         <div class="dashboard-grid">
             <div class="dashboard-card">
                 <div class="dashboard-card-header">
@@ -762,6 +885,10 @@ function renderDashboard(container: HTMLElement) {
         </div>
     `;
     attachDashboardActionListeners(container);
+    const enableNotificationsBtn = document.getElementById('enable-notifications-btn');
+    if (enableNotificationsBtn) {
+        enableNotificationsBtn.addEventListener('click', requestNotificationPermission);
+    }
 }
 
 function attachDashboardActionListeners(container: HTMLElement) {
@@ -772,16 +899,15 @@ function attachDashboardActionListeners(container: HTMLElement) {
             const viewTarget = button.getAttribute('data-view-target');
             if (viewTarget) {
                 appState.currentView = viewTarget;
-                // Reset editing states when navigating from dashboard quick actions
                 appState.editingMedicationId = null;
                 appState.editingAppointmentId = null;
                 appState.editingFamilyMemberId = null;
-                saveState();
+                // saveState(); // currentView change is saved by main nav handler
                 renderApp();
 
                 const focusFieldId = button.getAttribute('data-form-focus');
                 if (focusFieldId) {
-                    setTimeout(() => { // Ensure field is rendered
+                    setTimeout(() => {
                         (document.getElementById(focusFieldId) as HTMLElement)?.focus();
                     }, 0);
                 }
@@ -845,14 +971,14 @@ async function renderMedicineReminders(container: HTMLElement) {
   if (isEditing && document.getElementById('cancel-edit-med')) {
     document.getElementById('cancel-edit-med')?.addEventListener('click', () => {
       appState.editingMedicationId = null;
-      renderMedicineReminders(container); // Re-render form in add mode
+      saveState();
+      renderMedicineReminders(container); // Re-render current view without edit mode
     });
   }
 
   try {
     const fetchedMeds = await apiFetchMedications();
     appState.medications = fetchedMeds;
-    saveState();
   } catch (error) {
     console.error("Failed to fetch medications:", error);
     const listElement = document.getElementById('medication-list');
@@ -889,13 +1015,13 @@ function attachMedicationFormListener() {
                 } else {
                     await apiAddMedication(medData);
                 }
-                appState.editingMedicationId = null; // Clear editing state
+                appState.editingMedicationId = null;
+                saveState();
                 renderMedicationList();
                 if (appState.currentView === 'dashboard') renderDashboard(document.getElementById('app-content') as HTMLElement);
-                form.reset(); // Reset form for next entry
-                (document.getElementById('med-id') as HTMLInputElement).value = ''; // Clear hidden ID field
-                 // Re-render form header if it was in edit mode
-                if (isEditing) {
+                form.reset();
+                (document.getElementById('med-id') as HTMLInputElement).value = '';
+                if (isEditing) { // Reset form title and button text after edit
                     (form.parentElement?.querySelector('h2') as HTMLElement).textContent = t('addReminder');
                     submitButton.textContent = t('addReminder');
                     document.getElementById('cancel-edit-med')?.remove();
@@ -904,7 +1030,10 @@ function attachMedicationFormListener() {
                 console.error("Error saving medication:", error);
                 alert(t('errorAPI'));
             } finally {
-                setLoadingState(submitButton, false, isEditing && !appState.editingMedicationId ? 'addReminder' : (isEditing ? 'updateReminder' : 'addReminder'), 'saving');
+                setLoadingState(submitButton, false, appState.editingMedicationId ? 'updateReminder' : 'addReminder', 'saving');
+                 if(isEditing && !appState.editingMedicationId) { // If was editing, but now finished, revert button
+                     setLoadingState(submitButton, false, 'addReminder', 'saving');
+                 }
             }
         });
     }
@@ -970,6 +1099,7 @@ function attachMedicationActionListeners() {
 
             if (action === 'editMedication') {
                 appState.editingMedicationId = id;
+                saveState();
                 renderMedicineReminders(document.getElementById('app-content') as HTMLElement);
                 document.getElementById('med-name')?.focus();
             } else if (action === 'toggleTaken') {
@@ -994,7 +1124,7 @@ function attachMedicationActionListeners() {
                 } catch (error) {
                     console.error("Error deleting medication:", error);
                     alert(t('errorAPI'));
-                    renderMedicationList();
+                     renderMedicationList();
                 }
             }
         });
@@ -1060,6 +1190,7 @@ async function renderAppointmentsView(container: HTMLElement) {
   if (isEditing && document.getElementById('cancel-edit-appt')) {
     document.getElementById('cancel-edit-appt')?.addEventListener('click', () => {
       appState.editingAppointmentId = null;
+      saveState();
       renderAppointmentsView(container);
     });
   }
@@ -1067,7 +1198,6 @@ async function renderAppointmentsView(container: HTMLElement) {
   try {
     const fetchedAppts = await apiFetchAppointments();
     appState.appointments = fetchedAppts;
-    saveState();
   } catch (error) {
     console.error("Failed to fetch appointments:", error);
     const listElement = document.getElementById('appointment-list');
@@ -1106,6 +1236,7 @@ function attachAppointmentFormListener() {
           await apiAddAppointment(apptData as Omit<Appointment, 'id' | 'completed'>);
         }
         appState.editingAppointmentId = null;
+        saveState();
         renderAppointmentList();
         if (appState.currentView === 'dashboard') renderDashboard(document.getElementById('app-content') as HTMLElement);
         form.reset();
@@ -1119,7 +1250,10 @@ function attachAppointmentFormListener() {
         console.error("Error saving appointment:", error);
         alert(t('errorAPI'));
       } finally {
-        setLoadingState(submitButton, false, isEditing && !appState.editingAppointmentId ? 'addAppointment' : (isEditing ? 'updateAppointment' : 'addAppointment'), 'saving');
+        setLoadingState(submitButton, false, appState.editingAppointmentId ? 'updateAppointment' : 'addAppointment', 'saving');
+        if(isEditing && !appState.editingAppointmentId) {
+            setLoadingState(submitButton, false, 'addAppointment', 'saving');
+        }
       }
     });
   }
@@ -1196,6 +1330,7 @@ function attachAppointmentActionListeners() {
 
       if (action === 'editAppointment') {
           appState.editingAppointmentId = id;
+          saveState();
           renderAppointmentsView(document.getElementById('app-content') as HTMLElement);
           document.getElementById('appt-title')?.focus();
       } else if (action === 'toggleCompleted') {
@@ -1300,13 +1435,19 @@ function attachRecordFormListener() {
         return;
       }
 
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        alert(t('errorFileSizeTooLarge'));
+        fileInput.value = ''; // Reset file input
+        return;
+      }
+
       const submitButton = form.querySelector('button[type="submit"]') as HTMLButtonElement;
       setLoadingState(submitButton, true, 'add', 'saving');
 
       try {
         const fileDataUrl = await readFileAsDataURL(file);
         const newRecord: HealthRecord = {
-          id: generateId(),
+          id: appGenerateId(),
           title: (document.getElementById('record-title') as HTMLInputElement).value,
           recordType: (document.getElementById('record-type') as HTMLSelectElement).value,
           date: (document.getElementById('record-date') as HTMLInputElement).value,
@@ -1400,7 +1541,6 @@ function attachRecordActionListeners() {
         link.click();
         document.body.removeChild(link);
       } else if (id && action === 'deleteRecord') {
-        // Add loading state to delete button if desired
         appState.healthRecords = appState.healthRecords.filter(r => r.id !== id);
         saveState();
         renderHealthRecordList();
@@ -1429,9 +1569,6 @@ async function renderFamilyMembers(container: HTMLElement) {
   let emergencyContactsHtml = (memberToEdit?.emergencyContacts || []).map((contact, index) =>
     renderEmergencyContactFields(contact, index)
   ).join('');
-  if (!memberToEdit?.emergencyContacts?.length && isEditing) { // Ensure at least one empty set if editing and no contacts exist
-     // This case should be handled by the initial rendering if needed. The add button handles new ones.
-  }
 
 
   container.innerHTML = `
@@ -1488,6 +1625,7 @@ async function renderFamilyMembers(container: HTMLElement) {
   if (isEditing && document.getElementById('cancel-edit-family')) {
     document.getElementById('cancel-edit-family')?.addEventListener('click', () => {
       appState.editingFamilyMemberId = null;
+      saveState();
       renderFamilyMembers(container);
     });
   }
@@ -1495,7 +1633,6 @@ async function renderFamilyMembers(container: HTMLElement) {
   try {
     const fetchedFamily = await apiFetchFamilyMembers();
     appState.familyMembers = fetchedFamily;
-    saveState();
   } catch (error) {
     console.error("Failed to fetch family members:", error);
     const listElement = document.getElementById('family-list');
@@ -1507,11 +1644,10 @@ async function renderFamilyMembers(container: HTMLElement) {
 }
 
 function renderEmergencyContactFields(contact?: EmergencyContact, index?: number): string {
-    const contactId = contact?.id || generateId(); // Use existing or generate new for potential new field
+    const contactId = contact?.id || appGenerateId();
     const name = contact?.name || '';
     const phone = contact?.phone || '';
     const relationship = contact?.relationship || '';
-    // Use index for new fields that don't have a persisted contact.id yet
     const uniqueHtmlIdSuffix = contact?.id ? contact.id : `new-${index}`;
 
     return `
@@ -1565,11 +1701,12 @@ function attachFamilyFormListener() {
 
             const emergencyContacts: EmergencyContact[] = [];
             document.querySelectorAll('#emergency-contacts-container .emergency-contact-group').forEach(group => {
-                const id = (group.querySelector('.contact-id-hidden') as HTMLInputElement).value || generateId();
+                const idInput = group.querySelector('.contact-id-hidden') as HTMLInputElement;
+                const id = idInput ? idInput.value : appGenerateId();
                 const name = (group.querySelector('.contact-name') as HTMLInputElement).value;
                 const phone = (group.querySelector('.contact-phone') as HTMLInputElement).value;
                 const relationship = (group.querySelector('.contact-relationship') as HTMLInputElement).value;
-                if (name && phone && relationship) { // Only add if all fields are filled
+                if (name && phone && relationship) {
                     emergencyContacts.push({ id, name, phone, relationship });
                 }
             });
@@ -1593,14 +1730,14 @@ function attachFamilyFormListener() {
                     await apiAddFamilyMember(memberData);
                 }
                 appState.editingFamilyMemberId = null;
+                saveState();
                 renderFamilyList();
-                // Update other views if they depend on family members list (e.g., dropdowns)
                 if (['reminders', 'appointments', 'records', 'emergency', 'dashboard'].includes(appState.currentView)) {
-                    renderApp(); // Re-render current view if it might be affected
+                    renderApp(); // Re-render whole app if other views might be affected by family member change
                 }
                 form.reset();
                 (document.getElementById('family-member-id') as HTMLInputElement).value = '';
-                (document.getElementById('emergency-contacts-container') as HTMLElement).innerHTML = `<label>${t('emergencyContacts')}:</label>`; // Clear dynamic contacts
+                (document.getElementById('emergency-contacts-container') as HTMLElement).innerHTML = `<label>${t('emergencyContacts')}:</label>`; // Reset contacts area
 
                 if (isEditing) {
                     (form.parentElement?.querySelector('h2') as HTMLElement).textContent = t('addMember');
@@ -1612,7 +1749,10 @@ function attachFamilyFormListener() {
                 console.error("Error saving family member:", error);
                 alert(t('errorAPI'));
             } finally {
-                 setLoadingState(submitButton, false, isEditing && !appState.editingFamilyMemberId ? 'addMember' : (isEditing ? 'updateMember' : 'addMember'), 'saving');
+                 setLoadingState(submitButton, false, appState.editingFamilyMemberId ? 'updateMember' : 'addMember', 'saving');
+                 if(isEditing && !appState.editingFamilyMemberId) {
+                     setLoadingState(submitButton, false, 'addMember', 'saving');
+                 }
             }
         });
     }
@@ -1647,7 +1787,13 @@ function renderFamilyList() {
          memberDetails += `<br><small>${t('gender')}: ${t('genderPreferNotToSay')}</small>`;
     }
     if (member.medicalConditions) memberDetails += `<br><small class="notes">${t('medicalConditions')}: ${member.medicalConditions}</small>`;
-    if (member.bloodType) memberDetails += `<br><small>${t('bloodType')}: ${member.bloodType === 'Unknown' ? t('bloodTypeUnknown') : member.bloodType}</small>`;
+    
+    if (member.bloodType && member.bloodType !== 'Unknown') {
+         memberDetails += `<br><small>${t('bloodType')}: ${member.bloodType}</small>`;
+    } else if (member.bloodType === 'Unknown') {
+        memberDetails += `<br><small>${t('bloodType')}: ${t('bloodTypeUnknown')}</small>`;
+    }
+
     if (member.allergies) memberDetails += `<br><small class="notes">${t('allergies')}: ${member.allergies}</small>`;
     if (member.otherMedicalInfo) memberDetails += `<br><small class="notes">${t('otherMedicalInfo')}: ${member.otherMedicalInfo}</small>`;
 
@@ -1686,21 +1832,21 @@ function attachFamilyActionListeners() {
 
             if (action === 'editFamilyMember') {
                 appState.editingFamilyMemberId = id;
+                saveState();
                 renderFamilyMembers(document.getElementById('app-content') as HTMLElement);
                 document.getElementById('member-name')?.focus();
             } else if (action === 'deleteFamilyMember') {
                 setLoadingState(button, true, 'delete', 'deleting');
                 try {
                     await apiDeleteFamilyMember(id);
-                    renderFamilyList(); // Re-render this list
-                    // If current view is one that uses family members in dropdowns, re-render whole app or specific view
+                    renderFamilyList();
                     if (['reminders', 'appointments', 'records', 'emergency', 'dashboard'].includes(appState.currentView)) {
                          renderApp();
                     }
                 } catch (error) {
                     console.error("Error deleting family member:", error);
                     alert(t('errorAPI'));
-                    renderFamilyList(); // Restore button state on error
+                    renderFamilyList();
                 }
             }
         });
@@ -1714,9 +1860,8 @@ async function renderEmergencyView(container: HTMLElement) {
     listContainer.innerHTML = `<p>${t('loadingFamilyMembers')}</p>`;
 
     try {
-        const familyMembers = await apiFetchFamilyMembers(); // Fetch fresh data
-        appState.familyMembers = familyMembers; // Update local state if needed elsewhere
-        saveState(); // Persist potentially fetched data
+        const familyMembers = await apiFetchFamilyMembers();
+        appState.familyMembers = familyMembers;
 
         if (familyMembers.length === 0) {
             listContainer.innerHTML = `<p class="list-item-empty">${t('noFamilyForEmergency')}</p>`;
@@ -1732,7 +1877,11 @@ async function renderEmergencyView(container: HTMLElement) {
             if (member.bloodType && member.bloodType !== 'Unknown') {
                 contentHtml += `<p><strong>${t('bloodType')}:</strong> ${member.bloodType}</p>`;
                 detailsExist = true;
+            } else if (member.bloodType === 'Unknown') {
+                 contentHtml += `<p><strong>${t('bloodType')}:</strong> ${t('bloodTypeUnknown')}</p>`;
+                detailsExist = true;
             }
+
             if (member.allergies) {
                 contentHtml += `<p><strong>${t('allergies')}:</strong> ${member.allergies.replace(/\n/g, '<br>')}</p>`;
                 detailsExist = true;
@@ -1787,16 +1936,151 @@ function attachEmergencyViewActionListeners(container: HTMLElement) {
     });
 }
 
+// --- Notification System ---
+let notificationIntervalId: number | null = null;
 
-function renderNotImplemented(container: HTMLElement) {
-  container.innerHTML = `<div class="feature-container card"><p>${t('viewNotImplemented')}</p></div>`;
+async function requestNotificationPermission() {
+    if (!('Notification' in window)) {
+        console.warn('This browser does not support desktop notification');
+        appState.notificationPermission = 'denied'; // Treat as denied if not supported
+        saveState();
+        renderApp(); // Re-render to show status (e.g., on dashboard)
+        return;
+    }
+
+    if (Notification.permission === 'granted') {
+        appState.notificationPermission = 'granted';
+        initializeNotificationChecks();
+        saveState();
+        renderApp();
+        return;
+    }
+
+    if (Notification.permission === 'denied') {
+        appState.notificationPermission = 'denied';
+        saveState();
+        renderApp();
+        return;
+    }
+
+    // Default or not yet requested
+    try {
+        const permission = await Notification.requestPermission();
+        appState.notificationPermission = permission;
+        if (permission === 'granted') {
+            initializeNotificationChecks();
+        }
+        saveState();
+        renderApp(); // Re-render to update UI with new permission status
+    } catch (error) {
+        console.error('Error requesting notification permission:', error);
+        appState.notificationPermission = 'denied'; // Assume denied on error
+        saveState();
+        renderApp();
+    }
 }
+
+function initializeNotificationChecks() {
+    if (appState.notificationPermission === 'granted') {
+        if (notificationIntervalId) {
+            clearInterval(notificationIntervalId);
+        }
+        notificationIntervalId = window.setInterval(checkAndSendNotifications, NOTIFICATION_CHECK_INTERVAL);
+        console.log("Notification checks initialized.");
+        checkAndSendNotifications(); // Run once immediately
+    } else {
+        if (notificationIntervalId) {
+            clearInterval(notificationIntervalId);
+            notificationIntervalId = null;
+            console.log("Notification checks stopped due to lack of permission.");
+        }
+    }
+}
+
+function checkAndSendNotifications() {
+    if (appState.notificationPermission !== 'granted' || !appState.currentUser) {
+        return;
+    }
+
+    const now = new Date();
+    const todayISO = now.toISOString().split('T')[0];
+    const currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
+
+    // Check Medications
+    appState.medications.forEach(med => {
+        if (med.taken) return;
+
+        const [hours, minutes] = med.time.split(':').map(Number);
+        const medTimeMinutes = hours * 60 + minutes;
+
+        // Notify if current time is at or slightly past medication time (e.g., within a 5-minute window)
+        if (currentTimeMinutes >= medTimeMinutes && currentTimeMinutes < medTimeMinutes + 5) {
+            const notificationKey = `med-${med.id}-${todayISO}-${med.time}`;
+            const lastSentTimestamp = appState.lastNotificationTimestamps[notificationKey];
+
+            // Only send if not notified today for this specific time, or if last notification was long ago (e.g., >1hr, for recurring checks)
+            // For simplicity, we'll just check if it was sent for this key at all.
+            // A more robust system would check if lastSentTimestamp is older than, say, 1 hour.
+            if (!lastSentTimestamp || (Date.now() - lastSentTimestamp > 3600000) ) { // Allow re-notify after 1 hour if still not taken
+                const assignedToMember = appState.familyMembers.find(fm => fm.id === med.assignedTo);
+                const memberName = assignedToMember ? assignedToMember.name : t('self');
+                const title = t('medicationReminderTitle');
+                const body = t('medicationReminderBody').replace('%s', `${med.name} (${med.dosage}) for ${memberName}`);
+
+                new Notification(title, { body, icon: './assets/medminder_icon.png' }); // Assuming an icon exists
+                appState.lastNotificationTimestamps[notificationKey] = Date.now();
+                console.log(`Notification sent for medication: ${med.name}`);
+            }
+        }
+    });
+
+    // Check Appointments (notify 30 mins before)
+    appState.appointments.forEach(appt => {
+        if (appt.completed) return;
+
+        const apptDateTime = new Date(`${appt.date}T${appt.time}`);
+        const timeDiffMinutes = (apptDateTime.getTime() - now.getTime()) / (1000 * 60);
+
+        if (timeDiffMinutes > 0 && timeDiffMinutes <= 30) { // Notify if appointment is within the next 30 minutes
+            const notificationKey = `appt-${appt.id}`;
+            const lastSentTimestamp = appState.lastNotificationTimestamps[notificationKey];
+
+            if (!lastSentTimestamp) {
+                const assignedToMember = appState.familyMembers.find(fm => fm.id === appt.assignedTo);
+                const memberName = assignedToMember ? assignedToMember.name : t('self');
+                const title = t('appointmentReminderTitle');
+                const body = t('appointmentReminderBody')
+                                .replace('%s', appt.title)
+                                .replace('%s', `${appt.time} for ${memberName}`); // Second %s for time and assignee
+
+                new Notification(title, { body, icon: './assets/medminder_icon.png' });
+                appState.lastNotificationTimestamps[notificationKey] = Date.now();
+                console.log(`Notification sent for appointment: ${appt.title}`);
+            }
+        }
+    });
+
+    saveState(); // Save updated lastNotificationTimestamps
+}
+
 
 // --- Initial Setup ---
 document.addEventListener('DOMContentLoaded', () => {
+  const currentUser = getCurrentUser();
+  if (!currentUser) {
+      window.location.href = 'login.html';
+      return;
+  }
+  // appState is already initialized via loadInitialState at the top.
+
   const enterAppButton = document.getElementById('enter-app-button');
   if (enterAppButton) {
     enterAppButton.addEventListener('click', showMainApp);
+  }
+
+  const logoutButton = document.getElementById('logout-button');
+  if (logoutButton) {
+      logoutButton.addEventListener('click', handleLogout);
   }
 
   const nav = document.getElementById('app-nav');
@@ -1805,15 +2089,15 @@ document.addEventListener('DOMContentLoaded', () => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'BUTTON' && target.dataset.view) {
         const newView = target.dataset.view;
-        if (appState.currentView !== newView) { // Only change if view is different
+        if (appState.currentView !== newView ||
+            appState.editingMedicationId || appState.editingAppointmentId || appState.editingFamilyMemberId) {
             appState.currentView = newView;
-            // Reset editing states when changing main views
             appState.editingMedicationId = null;
             appState.editingAppointmentId = null;
             appState.editingFamilyMemberId = null;
+            saveState(); // Save change of view and clearing of edit states
+            renderApp();
         }
-        saveState();
-        renderApp();
       }
     });
   }
@@ -1827,5 +2111,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Initial call to set up notification permission state and potentially start checks
+  if (!appState.isLandingActive) { // If not on landing, user has already "entered app"
+      requestNotificationPermission();
+  }
+  // If landing page is active, requestNotificationPermission will be called by showMainApp()
+
   renderApp();
 });
+
+export {}; // Treat this file as a module

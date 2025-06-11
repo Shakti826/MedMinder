@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - MedMinder</title>
+    <link rel="stylesheet" href="login.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Poppins:wght@300;400;600;700&display=swap">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <h1 id="auth-title">MedMinder</h1>
+
+            {/* Login Form */}
+            <form id="login-form" class="auth-form">
+                <h2 id="login-heading">Login</h2>
+                <div id="login-error-message" class="error-message"></div>
+                <div>
+                    <label for="login-username" id="login-username-label">Username</label>
+                    <input type="text" id="login-username" required>
+                </div>
+                <div>
+                    <label for="login-password" id="login-password-label">Password</label>
+                    <input type="password" id="login-password" required>
+                </div>
+                <button type="submit" id="login-button" class="button-primary">Login</button>
+                <p id="login-toggle-text">Don't have an account? <a href="#" id="show-register-form">Register here</a></p>
+            </form>
+
+            {/* Registration Form (hidden by default) */}
+            <form id="register-form" class="auth-form" style="display: none;">
+                <h2 id="register-heading">Register</h2>
+                <div id="register-error-message" class="error-message"></div>
+                <div>
+                    <label for="register-username" id="register-username-label">Username</label>
+                    <input type="text" id="register-username" required>
+                </div>
+                <div>
+                    <label for="register-password" id="register-password-label">Password</label>
+                    <input type="password" id="register-password" required>
+                </div>
+                <div>
+                    <label for="register-confirm-password" id="register-confirm-password-label">Confirm Password</label>
+                    <input type="password" id="register-confirm-password" required>
+                </div>
+                <button type="submit" id="register-button" class="button-primary">Register</button>
+                <p id="register-toggle-text">Already have an account? <a href="#" id="show-login-form">Login here</a></p>
+            </form>
+        </div>
+    </div>
+    <script type="module" src="login.tsx"></script>
+</body>
+</html>
